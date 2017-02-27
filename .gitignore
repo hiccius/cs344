@@ -22,3 +22,6 @@
 build
 bin
 
+# CodeBlocks
+.depend
+.layout
