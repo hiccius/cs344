@@ -140,30 +140,32 @@ void gaussian_blur(const unsigned char* const inputChannel,
     // to be within the bounds of the image. If this is not clear to you, then please refer
     // to sequential reference solution for the exact clamping semantics you should follow.
 
-    if (blockIdx.x >= numCols || blockIdx.y >= numRows)
+    if (blockIdx.x >= numRows || threadIdx.x >= numCols)
     {
         return;
     }
     else
     {
-        int pixelRow = blockIdx.y;
-        int pixelCol = blockIdx.x;
+        int pixelRow = blockIdx.x;
+        int pixelCol = threadIdx.x;
 
-        int pixelIndex = pixelRow*numCols + pixelCol;
+        int pixelIndex = pixelRow * numCols + pixelCol;
+        float result = 0.f;
 
         for (int filterRow = -filterWidth/2; filterRow <= filterWidth/2; ++filterRow)
         {
             int pixelFilterRowSafe = d_min(d_max(pixelRow + filterRow, 0), numRows-1);
 
-            for (int filterCol = -filterWidth/2; filterCol <= filterWidth/2; ++filterRow)
+            for (int filterCol = -filterWidth/2; filterCol <= filterWidth/2; ++filterCol)
             {
                 int pixelFilterColSafe = d_min(d_max(pixelCol + filterCol, 0), numCols-1);
-                float pixelVal = inputChannel[pixelFilterRowSafe*numCols + pixelFilterColSafe];
+                float pixelVal = static_cast<float>(inputChannel[pixelFilterRowSafe*numCols + pixelFilterColSafe]);
                 float filterVal = filter[(filterRow + filterWidth/2) * filterWidth + filterCol + filterWidth/2];
 
-                outputChannel[pixelIndex] += pixelVal * filterVal;
+                result += pixelVal * filterVal;
             }
         }
+        outputChannel[pixelIndex] = result;
     }
 }
 
@@ -189,13 +191,13 @@ void separateChannels(const uchar4* const inputImageRGBA,
     //     return;
     // }
 
-    if (blockIdx.x >= numCols || blockIdx.y >= numRows)
+    if (blockIdx.x >= numRows || threadIdx.x >= numCols)
     {
         return;
     }
     else
     {
-        int pixelIndex = gridDim.x * blockIdx.y + blockIdx.x;
+        int pixelIndex = blockDim.x * blockIdx.x + threadIdx.x;
 
         redChannel[pixelIndex]   = inputImageRGBA[pixelIndex].x;
         greenChannel[pixelIndex] = inputImageRGBA[pixelIndex].y;
@@ -214,16 +216,15 @@ void recombineChannels(const unsigned char* const redChannel,
                        int numRows,
                        int numCols)
 {
+  //make sure we don't try and access memory outside the image
+  //by having any threads mapped there return early
+  if (threadIdx.x >= numCols || blockIdx.x >= numRows)
+    return;
+
   const int2 thread_2D_pos = make_int2( blockIdx.x * blockDim.x + threadIdx.x,
                                         blockIdx.y * blockDim.y + threadIdx.y);
 
-  const int thread_1D_pos = thread_2D_pos.y * numCols + thread_2D_pos.x;
-
-  //make sure we don't try and access memory outside the image
-  //by having any threads mapped there return early
-  if (thread_2D_pos.x >= numCols || thread_2D_pos.y >= numRows)
-    return;
-
+  const int thread_1D_pos = thread_2D_pos.x;
   unsigned char red   = redChannel[thread_1D_pos];
   unsigned char green = greenChannel[thread_1D_pos];
   unsigned char blue  = blueChannel[thread_1D_pos];
@@ -260,7 +261,7 @@ void allocateMemoryAndCopyToGPU(const size_t numRowsImage, const size_t numColsI
     //Copy the filter on the host (h_filter) to the memory you just allocated
     //on the GPU.  cudaMemcpy(dst, src, numBytes, cudaMemcpyHostToDevice);
     //Remember to use checkCudaErrors!
-    checkCudaErrors(cudaMemcpy(&d_filter, &h_filter, sizeof(float) * filterWidth * filterWidth, cudaMemcpyHostToDevice));
+    checkCudaErrors(cudaMemcpy(d_filter, h_filter, sizeof(float) * filterWidth * filterWidth, cudaMemcpyHostToDevice));
 }
 
 void your_gaussian_blur(const uchar4 * const h_inputImageRGBA, uchar4 * const d_inputImageRGBA,
@@ -271,12 +272,12 @@ void your_gaussian_blur(const uchar4 * const h_inputImageRGBA, uchar4 * const d_
                         const int filterWidth)
 {
     //TODO: Set reasonable block size (i.e., number of threads per block)
-    const dim3 blockSize(1, 1, 1);
+    const dim3 blockSize(numCols, 1, 1);
 
     //TODO:
     //Compute correct grid size (i.e., number of blocks per kernel launch)
     //from the image size and and block size.
-    const dim3 gridSize(numCols, numRows, 1);
+    const dim3 gridSize(numRows, 1, 1);
 
     //TODO: Launch a kernel for separating the RGBA image into different color channels
     separateChannels<<<gridSize, blockSize>>>(d_inputImageRGBA, numRows, numCols,

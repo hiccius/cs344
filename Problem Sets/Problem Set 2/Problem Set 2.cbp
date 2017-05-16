@@ -38,7 +38,10 @@
 		<Unit filename="main.cpp" />
 		<Unit filename="reference_calc.cpp" />
 		<Unit filename="reference_calc.h" />
-		<Unit filename="student_func.cu" />
+		<Unit filename="student_func.cu">
+			<Option compile="1" />
+			<Option link="1" />
+		</Unit>
 		<Unit filename="timer.h" />
 		<Unit filename="utils.h" />
 		<Extensions>
